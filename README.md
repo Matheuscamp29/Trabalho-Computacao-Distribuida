@@ -1,1 +1,1 @@
-# Trabalho-Computa-o-Distribu-da
+# Trabalho-Computacao-Distribuida
