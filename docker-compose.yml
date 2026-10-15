@@ -1,0 +1,16 @@
+services:
+  detector:
+    build: .
+    image: contador-produtos-api:latest
+    container_name: contador-produtos-api
+    ports:
+      - "${PORTA:-8000}:8000"
+    environment:
+      # tamanho máximo da imagem aceita (MB)
+      TAMANHO_MAX_MB: "20"
+    restart: unless-stopped
+    # CLIP + torch usam ~1,5 GB de RAM em uso; o limite evita o container derrubar a máquina
+    deploy:
+      resources:
+        limits:
+          memory: 4g

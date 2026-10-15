@@ -1,0 +1,11 @@
+.git
+__pycache__
+*.pyc
+venv
+.venv
+*.jpg
+*.jpeg
+*.png
+*.zip
+README.md
+docker-compose.yml

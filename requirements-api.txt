@@ -1,0 +1,6 @@
+# dependências do modelo (mesmas do main.py)
+-r requirements.txt
+# servidor HTTP
+fastapi
+uvicorn[standard]
+python-multipart
