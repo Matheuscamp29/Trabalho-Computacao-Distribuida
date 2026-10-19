@@ -21,6 +21,50 @@ Se for Linux, instala o torch antes com `pip install torch --index-url https://d
 
 Pra atualizar depois é só `git pull` na pasta.
 
+## Modo distribuído (dois workers)
+
+O coordenador divide a imagem em quatro blocos e envia os blocos alternadamente
+para dois workers HTTP. Para testar em uma máquina, abra **três terminais** na pasta
+do projeto, com o ambiente virtual ativado em cada um:
+
+```text
+Terminal 1: python -m uvicorn worker:app --host 0.0.0.0 --port 8001
+Terminal 2: python -m uvicorn worker:app --host 0.0.0.0 --port 8002
+Terminal 3: python -m uvicorn api:app --host 0.0.0.0 --port 8000
+```
+
+O valor padrão de `WORKER_URLS` é
+`http://127.0.0.1:8001,http://127.0.0.1:8002`. Para usar duas máquinas na
+mesma rede, execute um worker em cada uma, libere a porta 8001 no firewall e
+configure na máquina da API os IPs acessíveis dos workers antes de iniciá-la:
+
+```bash
+# Linux/macOS
+export WORKER_URLS="http://IP_DA_MAQUINA_1:8001,http://IP_DA_MAQUINA_2:8001"
+python -m uvicorn api:app --host 0.0.0.0 --port 8000
+```
+
+```powershell
+# PowerShell
+$env:WORKER_URLS = "http://IP_DA_MAQUINA_1:8001,http://IP_DA_MAQUINA_2:8001"
+python -m uvicorn api:app --host 0.0.0.0 --port 8000
+```
+
+Com os três processos prontos, envie a imagem com `distribuido=true`:
+
+```bash
+curl -F "imagem=@prateleira.jpg" -F "objeto=caixa de leite" -F "distribuido=true" http://localhost:8000/contar
+```
+
+No PowerShell, use `curl.exe` no lugar de `curl`. Os logs do coordenador mostram
+o destino de cada bloco; os logs dos workers mostram os blocos recebidos. Uma
+falha de worker retorna HTTP 503, evitando uma contagem parcial.
+
+Com Docker, `docker compose up --build` inicia a API e dois workers em contêineres
+separados. Depois use o mesmo `curl` acima. O Compose usa os nomes internos
+`worker1` e `worker2` como endereços. Cada processo carrega sua própria cópia
+do modelo CLIP, então reserve memória suficiente para os três processos.
+
 ## Usando na sua aplicação
 
 É um POST multipart em `/contar` com dois campos: `imagem` (o arquivo) e `objeto` (o texto).
@@ -59,7 +103,8 @@ Outras rotas:
 
 Se o resultado vier errado, os ajustes mais úteis são mandar junto no form `limiar` (padrão 0.6; baixa se faltou objeto, sobe se veio objeto errado) e `sensibilidade` (padrão 0.06; menor separa mais objetos colados). Tem mais alguns no `/docs`.
 
-Roda em CPU, cada foto leva uns 4 segundos, e processa uma de cada vez.
+Roda em CPU. O tempo por foto depende da máquina e do modo escolhido; no modo
+local, as inferências são serializadas.
 
 ## Sem instalar nada
 

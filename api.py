@@ -151,7 +151,10 @@ def _processar(imagem: UploadFile, objeto: str, limiar: float, segmentos: int, c
         from translations import traduzir
 
         # Executa o manager de forma síncrona dentro da rota FastAPI (simplificação)
-        mascara_global = asyncio.run(dist_manager.process_distributed(dados, objeto, parametros))
+        try:
+            mascara_global = asyncio.run(dist_manager.process_distributed(dados, objeto, parametros))
+        except RuntimeError as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
 
         # Agora usamos a lógica de contagem local sobre a máscara global
         instancias, contagem = separar_e_contar(
@@ -168,7 +171,7 @@ def _processar(imagem: UploadFile, objeto: str, limiar: float, segmentos: int, c
             probs=None,
             mascara=mascara_global,
             instancias=instancias,
-            objeto_en=traduzir(objeto) if 'traduzir' in globals() else objeto
+            objeto_en=traduzir(objeto)
         )
     else:
         # MODO LOCAL

@@ -19,6 +19,12 @@ async def startup_event():
     CLASSIFICADOR = ClassificadorCLIP(modelo)
     print(f"Worker iniciado com modelo {modelo} no device {CLASSIFICADOR.device}")
 
+@app.get("/health")
+def health():
+    if CLASSIFICADOR is None:
+        raise HTTPException(status_code=503, detail="modelo ainda carregando")
+    return {"status": "ok"}
+
 @app.post("/process_tile")
 async def process_tile(
     imagem: UploadFile = File(...),
@@ -33,6 +39,7 @@ async def process_tile(
         dados = await imagem.read()
         img_pil = Image.open(io.BytesIO(dados)).convert("RGB")
         img_np = np.array(img_pil)
+        print(f"[Worker {os.getpid()}] Processando tile {img_pil.width}x{img_pil.height}", flush=True)
 
         # Processar apenas até a máscara
         mascara, _ = gerar_mascara_objetos(

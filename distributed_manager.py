@@ -3,15 +3,18 @@ import httpx
 import numpy as np
 from PIL import Image
 import io
-from pipeline import separar_e_contar
+import os
 
 class DistributedManager:
     def __init__(self, worker_urls: list[str] = None):
-        self.worker_urls = worker_urls or ["http://localhost:8001"]
-        self.client = httpx.AsyncClient(timeout=60.0)
-
-    async def close(self):
-        await self.client.aclose()
+        if worker_urls is None:
+            configured = os.environ.get(
+                "WORKER_URLS", "http://127.0.0.1:8001,http://127.0.0.1:8002"
+            )
+            worker_urls = configured.split(",")
+        self.worker_urls = [url.strip().rstrip("/") for url in worker_urls if url.strip()]
+        if len(set(self.worker_urls)) < 2:
+            raise ValueError("WORKER_URLS deve conter pelo menos dois workers distintos")
 
     def _create_tiles(self, image: Image.Image, rows: int, cols: int, overlap_frac: float = 0.2):
         """Divide a imagem em tiles com sobreposição generosa para manter contexto do CLIP."""
@@ -53,7 +56,8 @@ class DistributedManager:
                 })
         return tiles
 
-    async def _dispatch_tile(self, worker_url: str, tile_data: dict, objeto: str, params: dict):
+    async def _dispatch_tile(self, client: httpx.AsyncClient, worker_url: str,
+                             tile_data: dict, objeto: str, params: dict):
         """Envia um tile para o worker e recebe a máscara."""
         # Converter imagem do tile para bytes
         buf = io.BytesIO()
@@ -70,7 +74,7 @@ class DistributedManager:
         files = {"imagem": ("tile.jpg", img_bytes, "image/jpeg")}
 
         try:
-            response = await self.client.post(
+            response = await client.post(
                 f"{worker_url}/process_tile",
                 data=data,
                 files=files
@@ -92,22 +96,24 @@ class DistributedManager:
         rows, cols = 2, 2
         tiles = self._create_tiles(img, rows, cols)
 
-        tasks = []
-        for i, tile in enumerate(tiles):
-            worker_url = self.worker_urls[i % len(self.worker_urls)]
-            tasks.append(self._dispatch_tile(worker_url, tile, objeto, params))
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            tasks = []
+            for i, tile in enumerate(tiles):
+                worker_url = self.worker_urls[i % len(self.worker_urls)]
+                print(f"[Manager] Tile {i} enviado para {worker_url}")
+                tasks.append(self._dispatch_tile(client, worker_url, tile, objeto, params))
 
-        masks = await asyncio.gather(*tasks)
+            masks = await asyncio.gather(*tasks)
+
+        failed_tiles = [i for i, mask in enumerate(masks) if mask is None]
+        if failed_tiles:
+            raise RuntimeError(f"Falha ao processar tiles: {failed_tiles}")
 
         global_mask = np.zeros((h, w), dtype=bool)
 
         total_pixels_found = 0
 
         for i, (tile_data, mask) in enumerate(zip(tiles, masks)):
-            if mask is None:
-                print(f"[Manager] Tile {i} retornou None")
-                continue
-
             # Debug: quantos pixels positivos vieram desse tile?
             positives = np.sum(mask)
             print(f"[Manager] Tile {i} processado. Pixels positivos: {positives}")
