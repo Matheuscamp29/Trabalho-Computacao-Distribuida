@@ -65,6 +65,28 @@ separados. Depois use o mesmo `curl` acima. O Compose usa os nomes internos
 `worker1` e `worker2` como endereços. Cada processo carrega sua própria cópia
 do modelo CLIP, então reserve memória suficiente para os três processos.
 
+### Relógio lógico de Lamport
+
+Cada processo mantém seu próprio contador, iniciado em zero. Ao enviar uma
+mensagem, incrementa o contador. Ao receber uma mensagem com timestamp `T`,
+atualiza o contador para `max(contador_local, T) + 1`. Isso registra a ordem
+causal das mensagens mesmo que os relógios físicos das máquinas sejam diferentes.
+
+O coordenador identifica cada bloco por `X-Task-Id` e envia seu contador em
+`X-Lamport-Timestamp`. O worker devolve os mesmos cabeçalhos com seu novo
+timestamp, além de `X-Worker-Id`. Nos logs, procure as linhas `SEND` e
+`RECEIVE` com o mesmo `task`: o `RECEIVE` do worker terá timestamp maior que o
+`SEND` do coordenador, e o `RECEIVE` do coordenador será maior que o `SEND` do
+worker. Os números exatos dependem da ordem de execução paralela. Exemplo de
+sequência para um bloco, sem outros eventos entre as mensagens:
+
+```text
+[Manager] SEND task=abc-0 worker=http://worker1:8001 lamport=1
+[Worker worker1] RECEIVE task=abc-0 remote=1 lamport=2
+[Worker worker1] SEND task=abc-0 lamport=3
+[Manager] RECEIVE task=abc-0 worker=http://worker1:8001 remote=3 lamport=4
+```
+
 ## Usando na sua aplicação
 
 É um POST multipart em `/contar` com dois campos: `imagem` (o arquivo) e `objeto` (o texto).

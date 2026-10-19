@@ -4,6 +4,9 @@ import numpy as np
 from PIL import Image
 import io
 import os
+from uuid import uuid4
+
+from logical_clock import LamportClock
 
 class DistributedManager:
     def __init__(self, worker_urls: list[str] = None):
@@ -15,6 +18,7 @@ class DistributedManager:
         self.worker_urls = [url.strip().rstrip("/") for url in worker_urls if url.strip()]
         if len(set(self.worker_urls)) < 2:
             raise ValueError("WORKER_URLS deve conter pelo menos dois workers distintos")
+        self.clock = LamportClock()
 
     def _create_tiles(self, image: Image.Image, rows: int, cols: int, overlap_frac: float = 0.2):
         """Divide a imagem em tiles com sobreposição generosa para manter contexto do CLIP."""
@@ -57,7 +61,7 @@ class DistributedManager:
         return tiles
 
     async def _dispatch_tile(self, client: httpx.AsyncClient, worker_url: str,
-                             tile_data: dict, objeto: str, params: dict):
+                             tile_data: dict, objeto: str, params: dict, task_id: str):
         """Envia um tile para o worker e recebe a máscara."""
         # Converter imagem do tile para bytes
         buf = io.BytesIO()
@@ -72,19 +76,35 @@ class DistributedManager:
             "janela": str(params.get("janela", 0.08)),
         }
         files = {"imagem": ("tile.jpg", img_bytes, "image/jpeg")}
+        send_timestamp = self.clock.tick()
+        headers = {
+            "X-Task-Id": task_id,
+            "X-Lamport-Timestamp": str(send_timestamp),
+        }
+        print(f"[Manager] SEND task={task_id} worker={worker_url} lamport={send_timestamp}", flush=True)
 
         try:
             response = await client.post(
                 f"{worker_url}/process_tile",
                 data=data,
-                files=files
+                files=files,
+                headers=headers,
             )
+            remote_timestamp = response.headers.get("X-Lamport-Timestamp")
+            if remote_timestamp is not None:
+                received_timestamp = self.clock.receive(int(remote_timestamp))
+                print(f"[Manager] RECEIVE task={task_id} worker={worker_url} "
+                      f"remote={remote_timestamp} lamport={received_timestamp}", flush=True)
             response.raise_for_status()
+            if remote_timestamp is None or response.headers.get("X-Task-Id") != task_id:
+                raise ValueError("resposta do worker sem identificador ou timestamp válido")
             # Converte bytes de volta para array numpy (uint8)
             mask = np.frombuffer(response.content, dtype=np.uint8).reshape(tile_data["height"], tile_data["width"])
             return mask
         except Exception as e:
-            print(f"Erro ao processar tile no worker {worker_url}: {e}")
+            failed_timestamp = self.clock.tick()
+            print(f"[Manager] ERROR task={task_id} worker={worker_url} "
+                  f"lamport={failed_timestamp} error={e}", flush=True)
             return None
 
     async def process_distributed(self, imagem_bytes: bytes, objeto: str, params: dict):
@@ -95,13 +115,14 @@ class DistributedManager:
         # Usamos uma grade menor inicialmente para garantir que os tiles sejam grandes o suficiente
         rows, cols = 2, 2
         tiles = self._create_tiles(img, rows, cols)
+        request_id = uuid4().hex[:12]
 
         async with httpx.AsyncClient(timeout=60.0) as client:
             tasks = []
             for i, tile in enumerate(tiles):
                 worker_url = self.worker_urls[i % len(self.worker_urls)]
-                print(f"[Manager] Tile {i} enviado para {worker_url}")
-                tasks.append(self._dispatch_tile(client, worker_url, tile, objeto, params))
+                task_id = f"{request_id}-{i}"
+                tasks.append(self._dispatch_tile(client, worker_url, tile, objeto, params, task_id))
 
             masks = await asyncio.gather(*tasks)
 
