@@ -23,9 +23,11 @@ from pydantic import BaseModel, Field
 from skimage.measure import regionprops
 
 from classifier import ClassificadorCLIP
-from pipeline import contar_objetos
+from pipeline import contar_objetos, gerar_mascara_objetos
 from translations import DICIONARIO
 from visualization import montar_figura
+from distributed_manager import manager as dist_manager
+
 
 MODELO = os.environ.get("CLIP_MODELO", "openai/clip-vit-base-patch32")
 TAMANHO_MAX_MB = float(os.environ.get("TAMANHO_MAX_MB", "20"))
@@ -130,7 +132,8 @@ def _validar(objeto: str, limiar: float, segmentos: int, lado_max: int):
 
 
 def _processar(imagem: UploadFile, objeto: str, limiar: float, segmentos: int, compacidade: float,
-               area_min: float, sensibilidade: float, janela: float, lado_max: int, separar: bool):
+               area_min: float, sensibilidade: float, janela: float, lado_max: int, separar: bool,
+               distribuido: bool = False):
     """Roda o pipeline e devolve (Resultado, resposta_sem_figura)."""
     _validar(objeto, limiar, segmentos, lado_max)
     dados, original = _ler_imagem(imagem)
@@ -138,23 +141,55 @@ def _processar(imagem: UploadFile, objeto: str, limiar: float, segmentos: int, c
                       sensibilidade=sensibilidade, janela=janela, lado_max=lado_max, separar=separar)
 
     t = time.time()
-    with _trava:
-        r = contar_objetos(
-            io.BytesIO(dados), objeto,
-            n_segmentos=segmentos, compacidade=compacidade, limiar=limiar,
-            area_min_frac=area_min, sensibilidade_separacao=sensibilidade,
-            separar=separar, janela_frac=janela, lado_max=lado_max,
-            classificador=_estado["classificador"],
+
+    if distribuido:
+        # MODO DISTRIBUÍDO
+        import asyncio
+        import numpy as np
+        from pipeline import Resultado
+        from counter import separar_e_contar
+        from translations import traduzir
+
+        # Executa o manager de forma síncrona dentro da rota FastAPI (simplificação)
+        mascara_global = asyncio.run(dist_manager.process_distributed(dados, objeto, parametros))
+
+        # Agora usamos a lógica de contagem local sobre a máscara global
+        instancias, contagem = separar_e_contar(
+            mascara_global,
+            area_minima_px=int(area_min * original.largura * original.altura),
+            sensibilidade=sensibilidade,
+            separar=separar,
         )
+
+        r = Resultado(
+            contagem=contagem,
+            imagem=np.array(Image.open(io.BytesIO(dados)).convert("RGB")),
+            labels_slic=None,
+            probs=None,
+            mascara=mascara_global,
+            instancias=instancias,
+            objeto_en=traduzir(objeto) if 'traduzir' in globals() else objeto
+        )
+    else:
+        # MODO LOCAL
+        with _trava:
+            r = contar_objetos(
+                io.BytesIO(dados), objeto,
+                n_segmentos=segmentos, compacidade=compacidade, limiar=limiar,
+                area_min_frac=area_min, sensibilidade_separacao=sensibilidade,
+                separar=separar, janela_frac=janela, lado_max=lado_max,
+                classificador=_estado["classificador"],
+            )
+
     tempo_ms = int((time.time() - t) * 1000)
 
     h, w = r.imagem.shape[:2]
     ex, ey = original.largura / w, original.altura / h  # volta p/ coordenadas da imagem enviada
-    instancias = []
+    instancias_resp = []
     for p in regionprops(r.instancias):
         minr, minc, maxr, maxc = p.bbox
         cy, cx = p.centroid
-        instancias.append(Instancia(
+        instancias_resp.append(Instancia(
             id=int(p.label),
             caixa=Caixa(x=round(minc * ex), y=round(minr * ey),
                         largura=round((maxc - minc) * ex), altura=round((maxr - minr) * ey)),
@@ -163,7 +198,7 @@ def _processar(imagem: UploadFile, objeto: str, limiar: float, segmentos: int, c
         ))
 
     resposta = RespostaContagem(
-        objeto=objeto, objeto_en=r.objeto_en, quantidade=r.contagem, instancias=instancias,
+        objeto=objeto, objeto_en=r.objeto_en, quantidade=r.contagem, instancias=instancias_resp,
         imagem_original=original, imagem_processada=Dimensoes(largura=w, altura=h),
         parametros=parametros, tempo_ms=tempo_ms,
     )
@@ -225,9 +260,10 @@ def contar(
     lado_max: int = Form(1000),
     separar: bool = Form(True),
     figura: bool = Form(False),
+    distribuido: bool = Form(False),
 ):
     r, resposta = _processar(imagem, objeto, limiar, segmentos, compacidade, area_min,
-                             sensibilidade, janela, lado_max, separar)
+                             sensibilidade, janela, lado_max, separar, distribuido=distribuido)
     if figura:
         resposta.figura_png_base64 = base64.b64encode(_figura_png(r, objeto)).decode("ascii")
     return resposta
