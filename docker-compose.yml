@@ -26,6 +26,7 @@ services:
     command: ["uvicorn", "worker:app", "--host", "0.0.0.0", "--port", "8001"]
     environment:
       PORT: "8001"
+      WORKER_ID: "worker1"
     restart: unless-stopped
 
   worker2:
@@ -33,4 +34,5 @@ services:
     command: ["uvicorn", "worker:app", "--host", "0.0.0.0", "--port", "8001"]
     environment:
       PORT: "8001"
+      WORKER_ID: "worker2"
     restart: unless-stopped

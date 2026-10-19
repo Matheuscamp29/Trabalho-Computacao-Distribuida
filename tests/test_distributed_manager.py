@@ -19,11 +19,17 @@ class DistributedManagerTests(unittest.TestCase):
         self.manager = DistributedManager(["http://worker1:8001", "http://worker2:8001"])
 
     def test_tiles_are_sent_to_both_workers_and_assembled(self):
-        destinations = []
+        requests = []
 
         def respond(request):
-            destinations.append(request.url.host)
-            return httpx.Response(200, content=bytes([1] * 4))
+            task_id = request.headers["X-Task-Id"]
+            timestamp = int(request.headers["X-Lamport-Timestamp"])
+            requests.append((request.url.host, task_id, timestamp))
+            return httpx.Response(
+                200, content=bytes([1] * 4),
+                headers={"X-Task-Id": task_id,
+                         "X-Lamport-Timestamp": str(timestamp + 2)},
+            )
 
         original_client = httpx.AsyncClient
         transport = httpx.MockTransport(respond)
@@ -31,14 +37,21 @@ class DistributedManagerTests(unittest.TestCase):
                    side_effect=lambda **kwargs: original_client(transport=transport, **kwargs)):
             mask = asyncio.run(self.manager.process_distributed(self.image_bytes, "box", {}))
 
-        self.assertEqual(destinations, ["worker1", "worker2", "worker1", "worker2"])
+        self.assertEqual([r[0] for r in requests], ["worker1", "worker2", "worker1", "worker2"])
+        self.assertEqual(len({r[1] for r in requests}), 4)
+        self.assertTrue(all(r[2] > 0 for r in requests))
+        self.assertGreater(self.manager.clock.value, max(r[2] + 2 for r in requests))
         np.testing.assert_array_equal(mask, np.ones((4, 4), dtype=bool))
 
     def test_failed_tile_does_not_return_partial_count(self):
         def respond(request):
             if request.url.host == "worker2":
                 return httpx.Response(503)
-            return httpx.Response(200, content=bytes([1] * 4))
+            return httpx.Response(
+                200, content=bytes([1] * 4),
+                headers={"X-Task-Id": request.headers["X-Task-Id"],
+                         "X-Lamport-Timestamp": str(int(request.headers["X-Lamport-Timestamp"]) + 2)},
+            )
 
         original_client = httpx.AsyncClient
         transport = httpx.MockTransport(respond)
