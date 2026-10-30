@@ -46,7 +46,7 @@ Terminal 3: python api.py
 
 No PowerShell é `$env:PORT=8001; $env:WORKER_ID="worker1"; python worker.py`.
 
-Na primeira vez cada worker baixa o modelo CLIP (uns 600 MB), então demora um pouco pra subir. Quando aparecer `CLIP ... carregado` no terminal, tá pronto. A API sobe na hora porque não carrega modelo nenhum. O padrão de `WORKER_URLS` é `http://127.0.0.1:8001,http://127.0.0.1:8002`.
+Na primeira vez cada worker baixa o modelo CLIP (uns 600 MB), então demora um pouco pra subir. Quando aparecer `CLIP ... carregado` no terminal, tá pronto. Cada worker usa uns 1,5 GB de RAM com o modelo carregado, então reserve memória pros dois. A API sobe na hora porque não carrega modelo nenhum. O padrão de `WORKER_URLS` é `http://127.0.0.1:8001,http://127.0.0.1:8002`.
 
 Confere se a API enxerga os workers:
 
@@ -79,10 +79,6 @@ python api.py
 $env:WORKER_URLS = "http://IP_DA_MAQUINA_1:8001,http://IP_DA_MAQUINA_2:8001"
 python api.py
 ```
-
-## Docker
-
-`docker compose up --build` sobe a API e dois workers em contêineres separados, usando os nomes internos `worker1` e `worker2`. Cada worker carrega sua própria cópia do CLIP (uns 1,5 GB de RAM cada), então reserve memória pros dois.
 
 ## Relógio lógico de Lamport
 
@@ -130,6 +126,8 @@ Volta assim:
 
 As coordenadas são em pixels da imagem que você mandou, então dá pra desenhar os retângulos direto por cima dela no front. CORS tá liberado, pode chamar do navegador.
 
+O limite de tamanho da foto é 20 MB; dá pra mudar com a variável de ambiente `TAMANHO_MAX_MB` antes de subir a API.
+
 Outras rotas:
 
 - `GET /health`: diz se cada worker está respondendo (`status` vira `degradado` se algum caiu).
@@ -163,7 +161,3 @@ python main.py prateleira.jpg "leite condensado" --limiar 0.4 --sensibilidade 0.
 ```
 
 Roda a mesma contagem sem workers e gera um `resultado.png` com as quatro etapas lado a lado. Serve de base pra comparar com o modo distribuído.
-
-## Túnel público
-
-`./servir.sh` sobe só a API e abre uma URL pública (`https://alguma-coisa.trycloudflare.com`) pra alguém de fora usar sem instalar nada. Os workers precisam estar rodando antes. A URL muda toda vez que o túnel reinicia e só funciona com a máquina de origem ligada.
