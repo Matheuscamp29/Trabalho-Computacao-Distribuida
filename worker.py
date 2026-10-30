@@ -1,88 +1,62 @@
 import os
-import io
+
 import numpy as np
-from fastapi import FastAPI, File, Form, Header, HTTPException, UploadFile
-from fastapi.responses import Response
+from flask import Flask, Response, jsonify, request
 from PIL import Image
-from pipeline import gerar_mascara_objetos
-from classifier import ClassificadorCLIP
-from logical_clock import LamportClock
 
-app = FastAPI(title="CV Worker")
+import logical_clock
+from classifier import carregar_clip
+from pipeline import gerar_mascara
 
-# Cache do classificador para evitar recarregar a cada request
-CLASSIFICADOR = None
-CLOCK = LamportClock()
 WORKER_ID = os.environ.get("WORKER_ID", f"worker-{os.getpid()}")
 
-@app.on_event("startup")
-async def startup_event():
-    global CLASSIFICADOR
-    modelo = os.environ.get("CLIP_MODELO", "openai/clip-vit-base-patch32")
-    CLASSIFICADOR = ClassificadorCLIP(modelo)
-    print(f"Worker iniciado com modelo {modelo} no device {CLASSIFICADOR.device}")
+app = Flask(__name__)
+clip = carregar_clip()
+print(f"[{WORKER_ID}] CLIP '{clip['nome']}' carregado (device={clip['device']})", flush=True)
+
 
 @app.get("/health")
 def health():
-    if CLASSIFICADOR is None:
-        raise HTTPException(status_code=503, detail="modelo ainda carregando")
-    return {"status": "ok"}
+    return jsonify(status="ok", worker=WORKER_ID)
+
 
 @app.post("/process_tile")
-async def process_tile(
-    imagem: UploadFile = File(...),
-    objeto: str = Form(...),
-    limiar: float = Form(0.6),
-    segmentos: int = Form(600),
-    compacidade: float = Form(10.0),
-    janela: float = Form(0.08),
-    task_id: str = Header(..., alias="X-Task-Id"),
-    lamport_timestamp: int = Header(..., alias="X-Lamport-Timestamp", ge=0),
-):
-    received_timestamp = CLOCK.receive(lamport_timestamp)
-    print(f"[Worker {WORKER_ID}] RECEIVE task={task_id} "
-          f"remote={lamport_timestamp} lamport={received_timestamp}", flush=True)
+def process_tile():
+    task_id = request.headers.get("X-Task-Id")
+    carimbo_remoto = request.headers.get("X-Lamport-Timestamp", type=int)
+    if not task_id or carimbo_remoto is None or carimbo_remoto < 0:
+        return jsonify(erro="cabeçalhos X-Task-Id e X-Lamport-Timestamp são obrigatórios"), 422
+    if "imagem" not in request.files or "objeto" not in request.form:
+        return jsonify(erro="campos 'imagem' e 'objeto' são obrigatórios"), 422
+
+    carimbo = logical_clock.receive(carimbo_remoto)
+    print(f"[{WORKER_ID}] RECEIVE task={task_id} remote={carimbo_remoto} lamport={carimbo}", flush=True)
+
     try:
-        # Ler imagem do upload
-        dados = await imagem.read()
-        img_pil = Image.open(io.BytesIO(dados)).convert("RGB")
-        img_np = np.array(img_pil)
-        print(f"[Worker {WORKER_ID}] Processando task={task_id} "
-              f"tile={img_pil.width}x{img_pil.height}", flush=True)
-
-        # Processar apenas até a máscara
-        mascara, _ = gerar_mascara_objetos(
-            img_np,
-            objeto,
-            n_segmentos=segmentos,
-            compacidade=compacidade,
-            limiar=limiar,
-            janela_frac=janela,
-            classificador=CLASSIFICADOR
+        imagem = np.array(Image.open(request.files["imagem"].stream).convert("RGB"))
+        print(f"[{WORKER_ID}] processando task={task_id} tile={imagem.shape[1]}x{imagem.shape[0]}", flush=True)
+        mascara, _, _, _ = gerar_mascara(
+            clip, imagem, request.form["objeto"],
+            n_segmentos=request.form.get("segmentos", 600, type=int),
+            compacidade=request.form.get("compacidade", 10.0, type=float),
+            limiar=request.form.get("limiar", 0.6, type=float),
+            janela_frac=request.form.get("janela", 0.08, type=float),
         )
-
-        # Retorna a máscara como bytes (binária) para economizar banda
-        # Usamos astype(np.uint8) para garantir que seja 0 ou 1
-        send_timestamp = CLOCK.tick()
-        print(f"[Worker {WORKER_ID}] SEND task={task_id} lamport={send_timestamp}", flush=True)
+        carimbo = logical_clock.tick()
+        print(f"[{WORKER_ID}] SEND task={task_id} lamport={carimbo}", flush=True)
         return Response(
-            content=mascara.astype(np.uint8).tobytes(),
-            media_type="application/octet-stream",
-            headers={"X-Task-Id": task_id,
-                     "X-Lamport-Timestamp": str(send_timestamp),
-                     "X-Worker-Id": WORKER_ID},
+            mascara.astype(np.uint8).tobytes(),
+            mimetype="application/octet-stream",
+            headers={"X-Task-Id": task_id, "X-Lamport-Timestamp": str(carimbo), "X-Worker-Id": WORKER_ID},
         )
     except Exception as e:
-        send_timestamp = CLOCK.tick()
-        print(f"[Worker {WORKER_ID}] SEND_ERROR task={task_id} "
-              f"lamport={send_timestamp} error={e}", flush=True)
-        raise HTTPException(
-            status_code=500, detail=str(e),
-            headers={"X-Task-Id": task_id,
-                     "X-Lamport-Timestamp": str(send_timestamp),
-                     "X-Worker-Id": WORKER_ID},
-        ) from e
+        carimbo = logical_clock.tick()
+        print(f"[{WORKER_ID}] SEND_ERROR task={task_id} lamport={carimbo} error={e}", flush=True)
+        return Response(
+            str(e), status=500,
+            headers={"X-Task-Id": task_id, "X-Lamport-Timestamp": str(carimbo), "X-Worker-Id": WORKER_ID},
+        )
+
 
 if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8001)
+    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 8001)))

@@ -1,6 +1,26 @@
-# Contador de produtos em prateleira
+# Contador de produtos em prateleira (distribuído)
 
-Você manda uma foto da prateleira e o nome do produto ("caixa de leite", "garrafa de água"...) e ele devolve quantas unidades achou e onde cada uma está. Por baixo é SLIC (segmentação) + CLIP (reconhecimento zero-shot) + watershed pra separar objetos encostados. Não precisa treinar nada.
+Você manda uma foto da prateleira e o nome do produto ("caixa de leite", "garrafa de água"...) e a API devolve quantas unidades achou e onde cada uma está. Por baixo é SLIC (segmentação) + CLIP (reconhecimento zero-shot) + watershed pra separar objetos encostados. Não precisa treinar nada.
+
+O processamento pesado não roda na API: ela coordena dois (ou mais) workers, que podem estar em outras máquinas da rede.
+
+## Como funciona
+
+1. A API recebe a foto em `POST /contar`, reduz pra `lado_max` e corta em 4 blocos (grade 2x2) com 20% de sobreposição, pra nenhum objeto da borda ficar cortado ao meio.
+2. Manda os 4 blocos em paralelo pros workers, alternando: blocos 0 e 2 pro primeiro, 1 e 3 pro segundo. Cada envio leva os cabeçalhos `X-Task-Id` e `X-Lamport-Timestamp`.
+3. Cada worker roda SLIC + CLIP no seu bloco e devolve uma máscara binária (bytes 0/1), sem JSON, pra economizar banda.
+4. A API costura só a zona central de cada máscara numa máscara do tamanho da imagem, separa objetos colados e conta.
+5. Se qualquer bloco falhar, a resposta é 503. Nunca sai contagem parcial.
+
+Quem é quem:
+
+- `api.py`: a API Flask. Só coordena, não carrega o CLIP.
+- `distributed_manager.py`: corta a imagem, envia os blocos, costura as máscaras.
+- `worker.py`: servidor Flask que carrega o CLIP e atende `/process_tile`.
+- `logical_clock.py`: relógio de Lamport (um contador por processo).
+- `pipeline.py`, `segmentation.py`, `classifier.py`, `counter.py`: a parte de visão.
+- `visualization.py`: figuras das etapas.
+- `main.py`: mesma contagem, mas em uma máquina só, pela linha de comando.
 
 ## Rodando na sua máquina
 
@@ -12,79 +32,69 @@ cd Trabalho-Computacao-Distribuida
 python -m venv venv
 source venv/bin/activate        # Windows: venv\Scripts\activate
 pip install -r requirements-api.txt
-uvicorn api:app --port 8000
 ```
-
-Na primeira vez ele baixa o modelo CLIP (uns 600 MB), então demora um pouco pra subir. Quando aparecer `[api] CLIP ... carregado` no terminal, tá pronto. Abre http://localhost:8000/docs que dá pra testar mandando uma foto direto pelo navegador.
 
 Se for Linux, instala o torch antes com `pip install torch --index-url https://download.pytorch.org/whl/cpu`, senão o pip baixa 3 GB de CUDA à toa.
 
-Pra atualizar depois é só `git pull` na pasta.
-
-## Modo distribuído (dois workers)
-
-O coordenador divide a imagem em quatro blocos e envia os blocos alternadamente
-para dois workers HTTP. Para testar em uma máquina, abra **três terminais** na pasta
-do projeto, com o ambiente virtual ativado em cada um:
+Abra três terminais na pasta do projeto, com o venv ativado em cada um:
 
 ```text
-Terminal 1: python -m uvicorn worker:app --host 0.0.0.0 --port 8001
-Terminal 2: python -m uvicorn worker:app --host 0.0.0.0 --port 8002
-Terminal 3: python -m uvicorn api:app --host 0.0.0.0 --port 8000
+Terminal 1: PORT=8001 WORKER_ID=worker1 python worker.py
+Terminal 2: PORT=8002 WORKER_ID=worker2 python worker.py
+Terminal 3: python api.py
 ```
 
-O valor padrão de `WORKER_URLS` é
-`http://127.0.0.1:8001,http://127.0.0.1:8002`. Para usar duas máquinas na
-mesma rede, execute um worker em cada uma, libere a porta 8001 no firewall e
-configure na máquina da API os IPs acessíveis dos workers antes de iniciá-la:
+No PowerShell é `$env:PORT=8001; $env:WORKER_ID="worker1"; python worker.py`.
+
+Na primeira vez cada worker baixa o modelo CLIP (uns 600 MB), então demora um pouco pra subir. Quando aparecer `CLIP ... carregado` no terminal, tá pronto. A API sobe na hora porque não carrega modelo nenhum. O padrão de `WORKER_URLS` é `http://127.0.0.1:8001,http://127.0.0.1:8002`.
+
+Confere se a API enxerga os workers:
 
 ```bash
-# Linux/macOS
+curl http://localhost:8000/health
+```
+
+E manda uma foto:
+
+```bash
+curl -F "imagem=@images.jpg" -F "objeto=garrafa de agua" http://localhost:8000/contar
+```
+
+No PowerShell, use `curl.exe` no lugar de `curl`. Os logs da API mostram pra qual worker cada bloco foi; os logs dos workers mostram os blocos recebidos.
+
+## Duas máquinas na mesma rede
+
+Rode um worker em cada máquina, libere a porta 8001 no firewall e aponte a API pros IPs deles:
+
+```bash
+# em cada máquina
+PORT=8001 WORKER_ID=worker1 python worker.py
+
+# na máquina da API
 export WORKER_URLS="http://IP_DA_MAQUINA_1:8001,http://IP_DA_MAQUINA_2:8001"
-python -m uvicorn api:app --host 0.0.0.0 --port 8000
+python api.py
 ```
 
 ```powershell
-# PowerShell
 $env:WORKER_URLS = "http://IP_DA_MAQUINA_1:8001,http://IP_DA_MAQUINA_2:8001"
-python -m uvicorn api:app --host 0.0.0.0 --port 8000
+python api.py
 ```
 
-Com os três processos prontos, envie a imagem com `distribuido=true`:
+## Docker
 
-```bash
-curl -F "imagem=@prateleira.jpg" -F "objeto=caixa de leite" -F "distribuido=true" http://localhost:8000/contar
-```
+`docker compose up --build` sobe a API e dois workers em contêineres separados, usando os nomes internos `worker1` e `worker2`. Cada worker carrega sua própria cópia do CLIP (uns 1,5 GB de RAM cada), então reserve memória pros dois.
 
-No PowerShell, use `curl.exe` no lugar de `curl`. Os logs do coordenador mostram
-o destino de cada bloco; os logs dos workers mostram os blocos recebidos. Uma
-falha de worker retorna HTTP 503, evitando uma contagem parcial.
+## Relógio lógico de Lamport
 
-Com Docker, `docker compose up --build` inicia a API e dois workers em contêineres
-separados. Depois use o mesmo `curl` acima. O Compose usa os nomes internos
-`worker1` e `worker2` como endereços. Cada processo carrega sua própria cópia
-do modelo CLIP, então reserve memória suficiente para os três processos.
+Cada processo tem seu próprio contador, começando em zero. Ao enviar uma mensagem, incrementa o contador (`tick`). Ao receber uma mensagem com timestamp `T`, atualiza pra `max(contador_local, T) + 1` (`receive`). Isso registra a ordem causal das mensagens mesmo que os relógios físicos das máquinas sejam diferentes.
 
-### Relógio lógico de Lamport
-
-Cada processo mantém seu próprio contador, iniciado em zero. Ao enviar uma
-mensagem, incrementa o contador. Ao receber uma mensagem com timestamp `T`,
-atualiza o contador para `max(contador_local, T) + 1`. Isso registra a ordem
-causal das mensagens mesmo que os relógios físicos das máquinas sejam diferentes.
-
-O coordenador identifica cada bloco por `X-Task-Id` e envia seu contador em
-`X-Lamport-Timestamp`. O worker devolve os mesmos cabeçalhos com seu novo
-timestamp, além de `X-Worker-Id`. Nos logs, procure as linhas `SEND` e
-`RECEIVE` com o mesmo `task`: o `RECEIVE` do worker terá timestamp maior que o
-`SEND` do coordenador, e o `RECEIVE` do coordenador será maior que o `SEND` do
-worker. Os números exatos dependem da ordem de execução paralela. Exemplo de
-sequência para um bloco, sem outros eventos entre as mensagens:
+A API identifica cada bloco por `X-Task-Id` e manda seu contador em `X-Lamport-Timestamp`. O worker devolve os mesmos cabeçalhos com seu novo timestamp, mais `X-Worker-Id`. Nos logs, procure as linhas `SEND` e `RECEIVE` com o mesmo `task`: o `RECEIVE` do worker sempre tem timestamp maior que o `SEND` da API, e o `RECEIVE` da API é maior que o `SEND` do worker. Os números exatos dependem da ordem de execução paralela. Exemplo pra um bloco:
 
 ```text
-[Manager] SEND task=abc-0 worker=http://worker1:8001 lamport=1
-[Worker worker1] RECEIVE task=abc-0 remote=1 lamport=2
-[Worker worker1] SEND task=abc-0 lamport=3
-[Manager] RECEIVE task=abc-0 worker=http://worker1:8001 remote=3 lamport=4
+[api] SEND task=abc-0 worker=http://127.0.0.1:8001 lamport=1
+[worker1] RECEIVE task=abc-0 remote=1 lamport=2
+[worker1] SEND task=abc-0 lamport=3
+[api] RECEIVE task=abc-0 worker=http://127.0.0.1:8001 remote=3 lamport=4
 ```
 
 ## Usando na sua aplicação
@@ -112,6 +122,8 @@ Volta assim:
     { "id": 2, "caixa": { "x": 1586, "y": 547, "largura": 118, "altura": 182 }, "centro": { "x": 1655, "y": 643 }, "area_px": 16145 }
   ],
   "imagem_original": { "largura": 1800, "altura": 2400 },
+  "imagem_processada": { "largura": 750, "altura": 1000 },
+  "parametros": { "limiar": 0.6, "segmentos": 600, "compacidade": 10.0, "area_min": 0.003, "sensibilidade": 0.06, "janela": 0.08, "lado_max": 1000, "separar": true },
   "tempo_ms": 4500
 }
 ```
@@ -119,26 +131,39 @@ Volta assim:
 As coordenadas são em pixels da imagem que você mandou, então dá pra desenhar os retângulos direto por cima dela no front. CORS tá liberado, pode chamar do navegador.
 
 Outras rotas:
-- `GET /health` responde 200 quando o modelo carregou (503 enquanto carrega)
-- `GET /objetos` lista os nomes em português que ele já traduz. O que não estiver na lista ele usa como veio, então em inglês funciona melhor ("milk carton")
-- `POST /contar/figura` recebe a mesma coisa e devolve um PNG com as etapas, bom pra ver o que ele tá fazendo
 
-Se o resultado vier errado, os ajustes mais úteis são mandar junto no form `limiar` (padrão 0.6; baixa se faltou objeto, sobe se veio objeto errado) e `sensibilidade` (padrão 0.06; menor separa mais objetos colados). Tem mais alguns no `/docs`.
+- `GET /health`: diz se cada worker está respondendo (`status` vira `degradado` se algum caiu).
+- `GET /objetos`: lista os nomes em português que a API já traduz. O que não estiver na lista é usado como veio, então em inglês funciona melhor ("milk carton").
+- `POST /contar/figura`: mesma entrada do `/contar`, mas devolve um PNG com a foto, a máscara costurada dos workers e as instâncias numeradas. Mandar `figura=true` no `/contar` inclui esse PNG em base64 no campo `figura_png_base64`.
 
-Roda em CPU. O tempo por foto depende da máquina e do modo escolhido; no modo
-local, as inferências são serializadas.
+Parâmetros opcionais, todos via form-data:
 
-## Sem instalar nada
+- `limiar` (0.6): probabilidade mínima pra um pedaço da imagem ser o objeto. Baixe se faltou objeto, suba se veio objeto errado.
+- `segmentos` (600): quantidade de superpixels SLIC. Mais = bordas mais precisas, mais lento.
+- `compacidade` (10): SLIC, maior = formas mais regulares.
+- `sensibilidade` (0.06): separação de objetos colados. Menor = separa mais.
+- `area_min` (0.003): ignora regiões menores que essa fração da imagem.
+- `janela` (0.08): tamanho mínimo da janela de contexto do CLIP (fração do lado menor).
+- `lado_max` (1000): a imagem é reduzida pra esse lado máximo antes de ser cortada.
+- `separar` (true): false = não tenta separar objetos encostados.
 
-Dá pra consumir pelo túnel de quem já tá com a API rodando: `./servir.sh` sobe a API e abre uma URL pública (`https://alguma-coisa.trycloudflare.com`). Aí é só trocar o `http://localhost:8000` por essa URL. A URL muda toda vez que o túnel reinicia e só funciona com a máquina de origem ligada.
+## Testes
 
-Também tem um `docker-compose.yml` se preferir container: `docker compose up --build`.
+```bash
+python -m unittest discover -s tests
+```
 
-## Linha de comando
+Os testes não carregam o CLIP. Eles usam workers falsos pra conferir o protocolo: rodízio dos blocos, cabeçalhos, relógio de Lamport, falha de worker virando 503 e o formato da resposta.
+
+## Uma máquina só (linha de comando)
 
 ```
-python main.py prateleira.jpg "caixa de leite"
+python main.py images.jpg "garrafa de agua"
 python main.py prateleira.jpg "leite condensado" --limiar 0.4 --sensibilidade 0.06
 ```
 
-Gera um `resultado.png` com as quatro etapas lado a lado.
+Roda a mesma contagem sem workers e gera um `resultado.png` com as quatro etapas lado a lado. Serve de base pra comparar com o modo distribuído.
+
+## Túnel público
+
+`./servir.sh` sobe só a API e abre uma URL pública (`https://alguma-coisa.trycloudflare.com`) pra alguém de fora usar sem instalar nada. Os workers precisam estar rodando antes. A URL muda toda vez que o túnel reinicia e só funciona com a máquina de origem ligada.

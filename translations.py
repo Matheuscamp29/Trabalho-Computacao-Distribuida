@@ -1,18 +1,12 @@
-"""Tradução simples PT -> EN dos nomes de objetos.
-
-O CLIP entende melhor inglês. Se o objeto não estiver no dicionário,
-o texto digitado é usado como está (você pode digitar direto em inglês,
-ex.: "milk carton").
-"""
 import unicodedata
 
 
-def _normalizar(texto: str) -> str:
+def normalizar(texto):
     texto = unicodedata.normalize("NFKD", texto.strip().lower())
     return "".join(c for c in texto if not unicodedata.combining(c))
 
 
-_DICIONARIO_BRUTO = {
+DICIONARIO_BRUTO = {
     "caixa de leite": "milk carton",
     "leite": "milk carton",
     "leite condensado": "condensed milk box",
@@ -51,8 +45,8 @@ _DICIONARIO_BRUTO = {
     "caixa de ovos": "egg carton",
 }
 
-DICIONARIO = {_normalizar(k): v for k, v in _DICIONARIO_BRUTO.items()}
+DICIONARIO = {normalizar(k): v for k, v in DICIONARIO_BRUTO.items()}
 
 
-def traduzir(nome: str) -> str:
-    return DICIONARIO.get(_normalizar(nome), nome.strip().lower())
+def traduzir(nome):
+    return DICIONARIO.get(normalizar(nome), nome.strip().lower())
