@@ -2,9 +2,9 @@ import argparse
 
 import matplotlib.pyplot as plt
 
-from classifier import carregar_clip
-from pipeline import contar_objetos
-from visualization import montar_figura
+from visao.classifier import carregar_clip
+from visao.pipeline import contar_objetos
+from visao.visualization import montar_figura
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Conta objetos em uma imagem (SLIC + CLIP) em uma única máquina.")

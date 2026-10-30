@@ -4,9 +4,9 @@ import numpy as np
 from flask import Flask, Response, jsonify, request
 from PIL import Image
 
-import logical_clock
-from classifier import carregar_clip
-from pipeline import gerar_mascara
+from distribuido import logical_clock
+from visao.classifier import carregar_clip
+from visao.pipeline import gerar_mascara
 
 WORKER_ID = os.environ.get("WORKER_ID", f"worker-{os.getpid()}")
 

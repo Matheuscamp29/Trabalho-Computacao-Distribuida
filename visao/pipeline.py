@@ -1,10 +1,10 @@
 import numpy as np
 from PIL import Image
 
-from classifier import pontuar_superpixels
-from counter import construir_mascara, separar_e_contar
-from segmentation import executar_slic
-from translations import traduzir
+from visao.classifier import pontuar_superpixels
+from visao.counter import construir_mascara, separar_e_contar
+from visao.segmentation import executar_slic
+from visao.translations import traduzir
 
 
 def carregar_imagem(caminho, lado_max=1000):

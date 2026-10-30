@@ -1,6 +1,6 @@
 import unittest
 
-import logical_clock
+from distribuido import logical_clock
 
 
 class LamportClockTests(unittest.TestCase):

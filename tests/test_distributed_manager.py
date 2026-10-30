@@ -6,8 +6,8 @@ from unittest.mock import patch
 import numpy as np
 from PIL import Image
 
-import logical_clock
-from distributed_manager import processar_distribuido
+from distribuido import logical_clock
+from distribuido.distributed_manager import processar_distribuido
 
 WORKERS = ["http://worker1:8001", "http://worker2:8001"]
 
@@ -33,7 +33,7 @@ class DistributedManagerTests(unittest.TestCase):
         )
 
     def test_tiles_alternate_between_workers_and_clock_advances(self):
-        with patch("distributed_manager.requests.post", side_effect=self.post_falso):
+        with patch("distribuido.distributed_manager.requests.post", side_effect=self.post_falso):
             mascara = processar_distribuido(self.imagem, "box", {}, WORKERS)
 
         por_indice = sorted(self.chamadas, key=lambda c: int(c[1].rsplit("-", 1)[1]))
@@ -46,7 +46,7 @@ class DistributedManagerTests(unittest.TestCase):
 
     def test_failed_tile_does_not_return_partial_count(self):
         self.derrubar_worker2 = True
-        with patch("distributed_manager.requests.post", side_effect=self.post_falso):
+        with patch("distribuido.distributed_manager.requests.post", side_effect=self.post_falso):
             with self.assertRaisesRegex(RuntimeError, "Falha ao processar tiles"):
                 processar_distribuido(self.imagem, "box", {}, WORKERS)
 

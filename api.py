@@ -14,10 +14,10 @@ from flask_cors import CORS
 from PIL import Image, UnidentifiedImageError
 from skimage.measure import regionprops
 
-from counter import separar_e_contar
-from distributed_manager import WORKER_URLS, processar_distribuido
-from translations import DICIONARIO, traduzir
-from visualization import montar_figura_distribuida
+from visao.counter import separar_e_contar
+from distribuido.distributed_manager import WORKER_URLS, processar_distribuido
+from visao.translations import DICIONARIO, traduzir
+from visao.visualization import montar_figura_distribuida
 
 TAMANHO_MAX_MB = float(os.environ.get("TAMANHO_MAX_MB", "20"))
 

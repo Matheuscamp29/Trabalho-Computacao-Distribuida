@@ -12,15 +12,28 @@ O processamento pesado não roda na API: ela coordena dois (ou mais) workers, qu
 4. A API costura só a zona central de cada máscara numa máscara do tamanho da imagem, separa objetos colados e conta.
 5. Se qualquer bloco falhar, a resposta é 503. Nunca sai contagem parcial.
 
-Quem é quem:
+Como as pastas estão organizadas:
 
-- `api.py`: a API Flask. Só coordena, não carrega o CLIP.
-- `distributed_manager.py`: corta a imagem, envia os blocos, costura as máscaras.
-- `worker.py`: servidor Flask que carrega o CLIP e atende `/process_tile`.
-- `logical_clock.py`: relógio de Lamport (um contador por processo).
-- `pipeline.py`, `segmentation.py`, `classifier.py`, `counter.py`: a parte de visão.
-- `visualization.py`: figuras das etapas.
-- `main.py`: mesma contagem, mas em uma máquina só, pela linha de comando.
+```text
+api.py                      a API Flask: só coordena, não carrega o CLIP
+distribuido/
+  distributed_manager.py    corta a imagem, envia os blocos, costura as máscaras
+  worker.py                 servidor Flask que carrega o CLIP e atende /process_tile
+  logical_clock.py          relógio de Lamport (um contador por processo)
+visao/
+  pipeline.py               carregar -> SLIC -> CLIP -> máscara -> contagem
+  segmentation.py           superpixels (SLIC)
+  classifier.py             CLIP: carrega o modelo e pontua cada superpixel
+  counter.py                máscara, separação de objetos colados e contagem
+  translations.py           dicionário português -> inglês dos produtos
+  visualization.py          figuras das etapas
+scripts/
+  contar_local.py           mesma contagem em uma máquina só, pela linha de comando
+imagens/                    fotos de exemplo e um resultado.png de amostra
+tests/                      testes sem CLIP, com workers falsos
+```
+
+Os comandos abaixo rodam sempre a partir da pasta raiz do projeto.
 
 ## Rodando na sua máquina
 
@@ -39,12 +52,12 @@ Se for Linux, instala o torch antes com `pip install torch --index-url https://d
 Abra três terminais na pasta do projeto, com o venv ativado em cada um:
 
 ```text
-Terminal 1: PORT=8001 WORKER_ID=worker1 python worker.py
-Terminal 2: PORT=8002 WORKER_ID=worker2 python worker.py
+Terminal 1: PORT=8001 WORKER_ID=worker1 python -m distribuido.worker
+Terminal 2: PORT=8002 WORKER_ID=worker2 python -m distribuido.worker
 Terminal 3: python api.py
 ```
 
-No PowerShell é `$env:PORT=8001; $env:WORKER_ID="worker1"; python worker.py`.
+No PowerShell é `$env:PORT=8001; $env:WORKER_ID="worker1"; python -m distribuido.worker`.
 
 Na primeira vez cada worker baixa o modelo CLIP (uns 600 MB), então demora um pouco pra subir. Quando aparecer `CLIP ... carregado` no terminal, tá pronto. Cada worker usa uns 1,5 GB de RAM com o modelo carregado, então reserve memória pros dois. A API sobe na hora porque não carrega modelo nenhum. O padrão de `WORKER_URLS` é `http://127.0.0.1:8001,http://127.0.0.1:8002`.
 
@@ -57,7 +70,7 @@ curl http://localhost:8000/health
 E manda uma foto:
 
 ```bash
-curl -F "imagem=@images.jpg" -F "objeto=garrafa de agua" http://localhost:8000/contar
+curl -F "imagem=@imagens/images.jpg" -F "objeto=garrafa de agua" http://localhost:8000/contar
 ```
 
 No PowerShell, use `curl.exe` no lugar de `curl`. Os logs da API mostram pra qual worker cada bloco foi; os logs dos workers mostram os blocos recebidos.
@@ -68,7 +81,7 @@ Rode um worker em cada máquina, libere a porta 8001 no firewall e aponte a API 
 
 ```bash
 # em cada máquina
-PORT=8001 WORKER_ID=worker1 python worker.py
+PORT=8001 WORKER_ID=worker1 python -m distribuido.worker
 
 # na máquina da API
 export WORKER_URLS="http://IP_DA_MAQUINA_1:8001,http://IP_DA_MAQUINA_2:8001"
@@ -148,7 +161,7 @@ Parâmetros opcionais, todos via form-data:
 ## Testes
 
 ```bash
-python -m unittest discover -s tests
+python -m unittest
 ```
 
 Os testes não carregam o CLIP. Eles usam workers falsos pra conferir o protocolo: rodízio dos blocos, cabeçalhos, relógio de Lamport, falha de worker virando 503 e o formato da resposta.
@@ -156,8 +169,8 @@ Os testes não carregam o CLIP. Eles usam workers falsos pra conferir o protocol
 ## Uma máquina só (linha de comando)
 
 ```
-python main.py images.jpg "garrafa de agua"
-python main.py prateleira.jpg "leite condensado" --limiar 0.4 --sensibilidade 0.06
+python -m scripts.contar_local imagens/images.jpg "garrafa de agua"
+python -m scripts.contar_local imagens/prateleira.jpg "leite condensado" --limiar 0.4 --sensibilidade 0.06
 ```
 
 Roda a mesma contagem sem workers e gera um `resultado.png` com as quatro etapas lado a lado. Serve de base pra comparar com o modo distribuído.

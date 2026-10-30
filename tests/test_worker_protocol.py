@@ -8,19 +8,19 @@ from unittest.mock import patch
 import numpy as np
 from PIL import Image
 
-import logical_clock
+from distribuido import logical_clock
 
 
 class WorkerProtocolTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        pipeline = types.ModuleType("pipeline")
+        pipeline = types.ModuleType("visao.pipeline")
         pipeline.gerar_mascara = lambda *args, **kwargs: (np.ones((2, 2), dtype=bool), None, None, "box")
-        classifier = types.ModuleType("classifier")
+        classifier = types.ModuleType("visao.classifier")
         classifier.carregar_clip = lambda *args, **kwargs: {"nome": "falso", "device": "cpu"}
-        with patch.dict(sys.modules, {"pipeline": pipeline, "classifier": classifier}):
-            sys.modules.pop("worker", None)
-            cls.worker = importlib.import_module("worker")
+        with patch.dict(sys.modules, {"visao.pipeline": pipeline, "visao.classifier": classifier}):
+            sys.modules.pop("distribuido.worker", None)
+            cls.worker = importlib.import_module("distribuido.worker")
         cls.cliente = cls.worker.app.test_client()
 
     def setUp(self):

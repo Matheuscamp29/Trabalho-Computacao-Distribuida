@@ -6,7 +6,7 @@ from uuid import uuid4
 import numpy as np
 import requests
 
-import logical_clock
+from distribuido import logical_clock
 
 WORKER_URLS = [u.strip().rstrip("/") for u in
                os.environ.get("WORKER_URLS", "http://127.0.0.1:8001,http://127.0.0.1:8002").split(",") if u.strip()]
