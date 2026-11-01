@@ -10,7 +10,7 @@ from distribuido import logical_clock
 
 WORKER_URLS = [u.strip().rstrip("/") for u in
                os.environ.get("WORKER_URLS", "http://127.0.0.1:8001,http://127.0.0.1:8002").split(",") if u.strip()]
-TIMEOUT_S = 60
+TIMEOUT_S = int(os.environ.get("TIMEOUT_S", 300))
 
 
 def cortar_tiles(imagem, linhas=2, colunas=2, sobreposicao=0.2):
@@ -37,6 +37,7 @@ def cortar_tiles(imagem, linhas=2, colunas=2, sobreposicao=0.2):
                 "imagem": imagem.crop((rx0, ry0, rx1, ry1)),
                 "recorte": (rx0, ry0, rx1, ry1),
                 "centro": (x0, y0, x1, y1),
+                "fracao": (rx1 - rx0) * (ry1 - ry0) / (largura * altura),
             })
     return tiles
 
@@ -53,7 +54,7 @@ def enviar_tile(url, tile, objeto, parametros, task_id):
             data={
                 "objeto": objeto,
                 "limiar": parametros.get("limiar", 0.6),
-                "segmentos": parametros.get("segmentos", 600),
+                "segmentos": max(10, round(parametros.get("segmentos", 600) * tile["fracao"])),
                 "compacidade": parametros.get("compacidade", 10.0),
                 "janela": parametros.get("janela", 0.08),
             },

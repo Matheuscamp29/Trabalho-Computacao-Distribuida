@@ -7,10 +7,10 @@ O processamento pesado não roda na API: ela coordena dois (ou mais) workers, qu
 ## Como funciona
 
 1. A API recebe a foto em `POST /contar`, reduz pra `lado_max` e corta em 4 blocos (grade 2x2) com 20% de sobreposição, pra nenhum objeto da borda ficar cortado ao meio.
-2. Manda os 4 blocos em paralelo pros workers, alternando: blocos 0 e 2 pro primeiro, 1 e 3 pro segundo. Cada envio leva os cabeçalhos `X-Task-Id` e `X-Lamport-Timestamp`.
+2. Manda os 4 blocos em paralelo pros workers, alternando: blocos 0 e 2 pro primeiro, 1 e 3 pro segundo. Cada envio leva os cabeçalhos `X-Task-Id` e `X-Lamport-Timestamp`. Cada bloco recebe uma quantidade de superpixels proporcional à área dele (uns 36% de `segmentos`), pra cada superpixel ter o mesmo tamanho que teria na imagem inteira.
 3. Cada worker roda SLIC + CLIP no seu bloco e devolve uma máscara binária (bytes 0/1), sem JSON, pra economizar banda.
 4. A API costura só a zona central de cada máscara numa máscara do tamanho da imagem, separa objetos colados e conta.
-5. Se qualquer bloco falhar, a resposta é 503. Nunca sai contagem parcial.
+5. Se qualquer bloco falhar, a resposta é 503. Nunca sai contagem parcial. A API espera no máximo 300 segundos por bloco; dá pra mudar com a variável de ambiente `TIMEOUT_S`.
 
 Como as pastas estão organizadas:
 
@@ -150,7 +150,7 @@ Outras rotas:
 Parâmetros opcionais, todos via form-data:
 
 - `limiar` (0.6): probabilidade mínima pra um pedaço da imagem ser o objeto. Baixe se faltou objeto, suba se veio objeto errado.
-- `segmentos` (600): quantidade de superpixels SLIC. Mais = bordas mais precisas, mais lento.
+- `segmentos` (600): quantidade de superpixels SLIC pra imagem inteira; cada bloco recebe a parte proporcional à área dele. Mais = bordas mais precisas, mais lento.
 - `compacidade` (10): SLIC, maior = formas mais regulares.
 - `sensibilidade` (0.06): separação de objetos colados. Menor = separa mais.
 - `area_min` (0.003): ignora regiões menores que essa fração da imagem.

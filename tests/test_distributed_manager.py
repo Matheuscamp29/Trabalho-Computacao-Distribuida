@@ -1,3 +1,4 @@
+import io
 import threading
 import types
 import unittest
@@ -24,11 +25,12 @@ class DistributedManagerTests(unittest.TestCase):
         task_id = headers["X-Task-Id"]
         carimbo = int(headers["X-Lamport-Timestamp"])
         with self.trava:
-            self.chamadas.append((url, task_id, carimbo))
+            self.chamadas.append((url, task_id, carimbo, data["segmentos"]))
         if self.derrubar_worker2 and "worker2" in url:
             return types.SimpleNamespace(status_code=503, content=b"", text="indisponivel", headers={})
+        largura, altura = Image.open(io.BytesIO(files["imagem"][1])).size
         return types.SimpleNamespace(
-            status_code=200, content=bytes([1] * 4), text="",
+            status_code=200, content=bytes([1] * (largura * altura)), text="",
             headers={"X-Task-Id": task_id, "X-Lamport-Timestamp": str(carimbo + 2)},
         )
 
@@ -43,6 +45,13 @@ class DistributedManagerTests(unittest.TestCase):
         self.assertTrue(all(c[2] > 0 for c in por_indice))
         self.assertGreater(logical_clock.atual(), max(c[2] + 2 for c in por_indice))
         np.testing.assert_array_equal(mascara, np.ones((4, 4), dtype=bool))
+
+    def test_segmentos_proporcionais_a_area_do_tile(self):
+        imagem = Image.new("RGB", (100, 100), "white")
+        with patch("distribuido.distributed_manager.requests.post", side_effect=self.post_falso):
+            processar_distribuido(imagem, "box", {"segmentos": 600}, WORKERS)
+
+        self.assertEqual([c[3] for c in self.chamadas], [216, 216, 216, 216])
 
     def test_failed_tile_does_not_return_partial_count(self):
         self.derrubar_worker2 = True
