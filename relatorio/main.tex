@@ -36,10 +36,7 @@
 \title[Contagem distribuída de produtos em imagens]{Contagem distribuída de produtos em imagens: coordenação por web services e relógios lógicos de Lamport}
 
 \author[Trabalho Prático --- Computação Distribuída]{
-\affil{\textbf{André Penchel}~~[~\textbf{PUC Minas}~|~\preencher{email}~]}
-\affil{\textbf{\preencher{Nome completo do aluno 2 (Matheus)}}~~[~\textbf{PUC Minas}~|~\preencher{email}~]}
-\affil{\textbf{\preencher{Nome completo do aluno 3 (Arthur)}}~~[~\textbf{PUC Minas}~|~\preencher{email}~]}
-\affil{\textbf{\preencher{Nome completo do aluno 4 (Mateus)}}~~[~\textbf{PUC Minas}~|~\preencher{email}~]}
+\affil{\textbf{André Vieira Penchel}, \textbf{Matheus Campello}, \textbf{João Vitor}, \textbf{Henrique Saldanha}, \textbf{Mateus Martins Parreiras} e \textbf{Arthur Campos}~~[~\textbf{PUC Minas}~]}
 }
 
 \begin{document}
@@ -231,13 +228,13 @@ ssh ubuntu@IP_DO_WORKER 'journalctl -u contador -f'
 \section{Papel de cada aluno}
 \label{sec:papeis}
 
-\preencher{Ajustar com o que cada um de fato fez. Sugestão de divisão, pelas partes que existem no projeto:}
-
 \begin{itemize}
-\item \textbf{André Penchel:} \preencher{reestruturação da API em Flask, relógio lógico, infraestrutura na AWS com Terraform, execução e coleta das evidências, relatório.}
-\item \textbf{\preencher{Aluno 2}:} \preencher{pipeline de visão (SLIC, CLIP, máscara, separação de instâncias) e script local.}
-\item \textbf{\preencher{Aluno 3}:} \preencher{protocolo de despacho e costura dos blocos, testes unitários.}
-\item \textbf{\preencher{Aluno 4}:} \preencher{rotas da API, validação de entrada, tradução de objetos, figura de saída.}
+\item \textbf{Matheus Campello:} pipeline de visão em uma máquina (14/10): segmentação SLIC, pontuação dos superpixels com o CLIP e as frases positivas e negativas, máscara com operações morfológicas, separação de instâncias por \emph{watershed} e contagem, tradução dos nomes de produto, figura de saída e imagens de exemplo.
+\item \textbf{Mateus Martins Parreiras:} primeira versão da execução distribuída (19/10): corte da imagem em blocos com sobreposição, gerente que despacha os blocos e costura as máscaras, e o processo worker.
+\item \textbf{Arthur Campos:} relógio lógico de Lamport (19/10): módulo do relógio, cabeçalhos \texttt{X-Task-Id} e \texttt{X-Lamport-Timestamp}, logs de envio e recepção, configuração com dois workers e os testes unitários do despacho, do relógio e do protocolo do worker.
+\item \textbf{João Vitor:} rotas da API (\texttt{/contar}, \texttt{/contar/figura}, \texttt{/objetos} e \texttt{/health}), validação das entradas com os códigos de erro e documentação de execução no \texttt{README}.
+\item \textbf{Henrique Saldanha:} infraestrutura na AWS: Terraform em \texttt{infra/}, \emph{script} de inicialização das máquinas com o serviço do sistema, subida e teste das três instâncias.
+\item \textbf{André Vieira Penchel:} reescrita da API e dos workers em Flask com o código organizado em pastas (30/10), diagnóstico e correção do tempo limite e dos superpixels por bloco na AWS (01/11), coleta das evidências e redação do relatório.
 \end{itemize}
 
 \section{Conclusão e próximos passos}
