@@ -164,7 +164,7 @@ Na API, cada bloco despachado é um envio (\texttt{tick}) e cada resposta recebi
 [worker1] SEND    task=t0 lamport=13
 \end{verbatim}}
 
-O worker 1 recebeu \texttt{t0} com carimbo remoto 1 e passou a 2; recebeu \texttt{t2} com carimbo 3 e passou a 4, mesmo que seu próprio relógio estivesse atrás. Com isso é possível afirmar, apenas pelos carimbos, que o envio de \texttt{t0} pela API aconteceu antes do seu processamento no worker, e que a resposta de \texttt{t0} (carimbo 13) é posterior a todos os envios da API, sem consultar os relógios físicos das duas máquinas. O relógio de Lamport dá apenas uma ordem parcial: dois eventos com carimbos diferentes em máquinas diferentes podem ser concorrentes, e isso é esperado. O que o sistema ganha é uma forma de ordenar causalmente os eventos de cada requisição nos logs, detectar uma resposta que chegue com carimbo menor do que o esperado e, na segunda entrega, basear nele o tratamento de respostas atrasadas e reenvios.
+O worker 1 recebeu \texttt{t0} com carimbo remoto 1 e passou a 2; recebeu \texttt{t2} com carimbo 3 e passou a 4, mesmo que seu próprio relógio estivesse atrás (o salto até 13 vem de linhas omitidas, em que ele recebeu os blocos de um segundo pedido). Sem consultar os relógios físicos das duas máquinas, a cadeia de mensagens mostra que o envio de \texttt{t0} pela API (1) precede sua recepção no worker (2), que precede a resposta (13). Os carimbos sozinhos garantem apenas a relação inversa: um evento de carimbo maior nunca precede causalmente um de carimbo menor, logo a resposta não pode ter precedido nenhum dos quatro envios. Carimbo menor não implica ``aconteceu antes'': o envio de \texttt{t1} na API e a recepção de \texttt{t0} no worker 1 têm o mesmo carimbo 2 e são concorrentes, assim como os envios ao worker 2 são concorrentes com o processamento no worker 1. O relógio de Lamport dá só uma ordem parcial, e isso é esperado. O que o sistema ganha é uma forma de ordenar causalmente os eventos de cada requisição nos logs, detectar uma resposta que chegue com carimbo menor do que o esperado e, na segunda entrega, basear nele o tratamento de respostas atrasadas e reenvios.
 
 \section{Execução e evidências}
 \label{sec:execucao}
@@ -199,7 +199,7 @@ e a contagem de ``garrafa de agua'' na imagem \texttt{imagens/images.jpg} do rep
 {\scriptsize
 \begin{verbatim}
 curl http://ENDERECO:8000/health
-curl -F "imagem=@imagens/images.jpg" \\
+curl -F "imagem=@imagens/images.jpg" \
      -F "objeto=garrafa de agua" http://ENDERECO:8000/contar
 ssh ubuntu@IP_DO_WORKER 'journalctl -u contador -f'
 \end{verbatim}}
