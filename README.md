@@ -177,10 +177,4 @@ Roda a mesma contagem sem workers e gera um `resultado.png` com as quatro etapas
 
 ## Relatório
 
-O relatório da disciplina fica em `relatorio/`, no template de artigo da SBC (JBCS). O template precisa de XeLaTeX ou LuaLaTeX por causa da fonte Times New Roman. Com o [Tectonic](https://tectonic-typesetting.github.io/) instalado:
-
-```
-cd relatorio && tectonic main.tex
-```
-
-Ou suba a pasta inteira no Overleaf e escolha o compilador XeLaTeX. Se existir um `relatorio/figura_aws.png` (saída de `POST /contar/figura`), ele entra automaticamente como figura.
+O relatório da primeira entrega está em `relatorio.pdf`, no template de artigo da SBC. O fonte LaTeX é mantido pelo grupo no Overleaf.
