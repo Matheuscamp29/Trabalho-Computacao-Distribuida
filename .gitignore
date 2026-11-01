@@ -7,3 +7,8 @@ infra/.terraform/
 infra/*.tfstate
 infra/*.tfstate.backup
 infra/terraform.tfvars
+relatorio/*.aux
+relatorio/*.log
+relatorio/*.bbl
+relatorio/*.blg
+relatorio/*.out

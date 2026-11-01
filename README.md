@@ -174,3 +174,13 @@ python -m scripts.contar_local imagens/prateleira.jpg "leite condensado" --limia
 ```
 
 Roda a mesma contagem sem workers e gera um `resultado.png` com as quatro etapas lado a lado. Imprime o tempo de processamento em ms, sem contar o carregamento do modelo, na mesma medida do `tempo_ms` da API. Serve de base pra comparar com o modo distribuído.
+
+## Relatório
+
+O relatório da disciplina fica em `relatorio/`, no template de artigo da SBC (JBCS). O template precisa de XeLaTeX ou LuaLaTeX por causa da fonte Times New Roman. Com o [Tectonic](https://tectonic-typesetting.github.io/) instalado:
+
+```
+cd relatorio && tectonic main.tex
+```
+
+Ou suba a pasta inteira no Overleaf e escolha o compilador XeLaTeX. Se existir um `relatorio/figura_aws.png` (saída de `POST /contar/figura`), ele entra automaticamente como figura.
