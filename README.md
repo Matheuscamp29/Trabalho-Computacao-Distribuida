@@ -173,4 +173,4 @@ python -m scripts.contar_local imagens/images.jpg "garrafa de agua"
 python -m scripts.contar_local imagens/prateleira.jpg "leite condensado" --limiar 0.4 --sensibilidade 0.06
 ```
 
-Roda a mesma contagem sem workers e gera um `resultado.png` com as quatro etapas lado a lado. Serve de base pra comparar com o modo distribuído.
+Roda a mesma contagem sem workers e gera um `resultado.png` com as quatro etapas lado a lado. Imprime o tempo de processamento em ms, sem contar o carregamento do modelo, na mesma medida do `tempo_ms` da API. Serve de base pra comparar com o modo distribuído.

@@ -1,4 +1,5 @@
 import argparse
+import time
 
 import matplotlib.pyplot as plt
 
@@ -23,12 +24,15 @@ if __name__ == "__main__":
     a = parser.parse_args()
 
     clip = carregar_clip()
+    inicio = time.perf_counter()
     r = contar_objetos(clip, a.imagem, a.objeto, n_segmentos=a.segmentos, compacidade=a.compacidade,
                        limiar=a.limiar, area_min_frac=a.area_min, sensibilidade=a.sensibilidade,
                        separar=not a.sem_separar, lado_max=a.lado_max, janela_frac=a.janela)
+    tempo_ms = int((time.perf_counter() - inicio) * 1000)
 
     print(f'Objeto: "{a.objeto}" (busca: "{r["objeto_en"]}")')
     print(f"Quantidade encontrada: {r['contagem']}")
+    print(f"Tempo de processamento: {tempo_ms} ms")
 
     fig = montar_figura(r["imagem"], r["labels"], r["probs"], r["instancias"], a.objeto, r["contagem"])
     fig.savefig(a.saida, dpi=120)
